@@ -123,6 +123,55 @@ function ledgerStrip() {
   return `<div class="ledger">All 758 snapshot protocols in exactly one group — ${legend}<div class="bar">${segs}</div></div>`;
 }
 
+/** Mini scatter: the 81 traded comps, actual market cap (x) vs
+ *  leave-one-out prediction (y), log-log. Dashed diagonals are the P25–P75
+ *  band of the leave-one-out residuals, computed here from the same scatter
+ *  data the validation view uses — no new numbers. */
+function miniScatterSvg() {
+  const pts = D.scatter;
+  const xs = pts.map((p) => Math.log10(p.actual));
+  const ys = pts.map((p) => Math.log10(p.pred));
+  const lo = Math.floor(Math.min(...xs, ...ys));
+  const hi = Math.ceil(Math.max(...xs, ...ys));
+  const res = pts.map((p) => Math.log10(p.pred) - Math.log10(p.actual)).sort((a, b) => a - b);
+  const q = (f) => res[Math.min(res.length - 1, Math.floor(f * res.length))];
+  const q25 = q(0.25), q75 = q(0.75);
+  const W = 200, H = 44, P = 3;
+  const X = (v) => P + ((v - lo) / (hi - lo)) * (W - 2 * P);
+  const Y = (v) => H - P - ((v - lo) / (hi - lo)) * (H - 2 * P);
+  const dots = pts.map((p) => `<circle cx="${X(Math.log10(p.actual)).toFixed(1)}" cy="${Y(Math.log10(p.pred)).toFixed(1)}" r="1.7" fill="#2dd4bf" opacity="0.85"/>`).join("");
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <line x1="${X(lo)}" y1="${Y(lo)}" x2="${X(hi)}" y2="${Y(hi)}" stroke="#f8fafc" stroke-width="1"/>
+  <line x1="${X(lo)}" y1="${Y(lo + q25)}" x2="${X(hi)}" y2="${Y(hi + q25)}" stroke="#475569" stroke-width="1" stroke-dasharray="3 2"/>
+  <line x1="${X(lo)}" y1="${Y(lo + q75)}" x2="${X(hi)}" y2="${Y(hi + q75)}" stroke="#475569" stroke-width="1" stroke-dasharray="3 2"/>
+  <text x="${W - 4}" y="10" fill="#8b9bb4" font-size="8" text-anchor="end">81 comps</text>
+  ${dots}</svg>`;
+}
+
+/** Model-proof strip on the board view: the fitted formula with its real
+ *  full-precision coefficients, the honest out-of-sample range, and the mini
+ *  scatter. Every number comes from MODEL / D.model.validation / D.scatter
+ *  — the same data the validation view and the research note already show.
+ *  The board below stays dominant: this strip is one short row. */
+function modelStrip() {
+  const v = D.model.validation;
+  const m = MODEL;
+  const f = m.features;
+  const term = (b) => (b >= 0 ? "+ " : "− ") + Math.abs(b);
+  const wfApes = v.walk_forward.map((w) => w.med_ape_pct);
+  const wfLo = Math.min(...wfApes).toFixed(1);
+  const wfHi = Math.max(...wfApes).toFixed(1);
+  return `<div class="modelstrip"><div class="ms-formula">
+  <div class="ms-label">How the value is priced — ridge on 81 traded comps · λ ${m.lambda} · z = (feature − mean)/sd · ref ${esc(m.reference_category)}</div>
+  <code>log10(mcap) = ${m.intercept_log10} + ${f[0].beta_standardised}·z(log10 TVL)</code>
+  <code>${term(f[1].beta_standardised)}·z(log10 age) ${term(f[2].beta_standardised)}·z(7d chg) ${term(f[3].beta_standardised)}·z(log10 chains) + 24 dummies</code>
+  </div><div class="ms-valid">
+  <div class="ms-label">Out-of-sample median error · R² ${v.r2.toFixed(3)}</div>
+  <div>LOO <b>${v.loo_med_ape_pct.toFixed(1)}%</b> · time-split <b>${v.ts_med_ape_pct.toFixed(1)}%</b></div>
+  <div>walk-forward <b>${wfLo}–${wfHi}%</b> · typical miss <b>×${v.loo_med_fold.toFixed(2)}</b></div>
+  </div><div class="ms-scatter">${miniScatterSvg()}</div></div>`;
+}
+
 function rowHtml(r) {
   const e = evFor(r, deposit);
   // The band bar spans the whole P10–P90 interval; the marker is the point
@@ -165,7 +214,7 @@ function renderBoard() {
   };
   rows = [...rows].sort(sorters[sort] || sorters.implied);
   const app = document.getElementById("app");
-  app.innerHTML = `<div class="wrap">${header("Token Launch Radar")}${kpis()}${ledgerStrip()}
+  app.innerHTML = `<div class="wrap">${header("Token Launch Radar")}${kpis()}${ledgerStrip()}${modelStrip()}
   <div class="controls">
     <input id="q" placeholder="Search name" value="${esc(q)}" size="14">
     <select id="cat">${cats.map((c) => `<option ${c === cat ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
